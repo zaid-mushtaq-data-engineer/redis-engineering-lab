@@ -1,0 +1,64 @@
+{
+  "info": {
+    "name": "Redis Engineering Lab",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "adminKey", "value": "change-me-admin-key" },
+    { "key": "productId", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": "{{baseUrl}}/actuator/health" }
+    },
+    {
+      "name": "Create product",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-Admin-Key", "value": "{{adminKey}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"name\":\"Wireless Mouse\",\"description\":\"Bluetooth mouse\",\"price\":799.00}"
+        },
+        "url": "{{baseUrl}}/api/admin/products"
+      }
+    },
+    {
+      "name": "Public product detail",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/products/{{productId}}" }
+    },
+    {
+      "name": "Public product list",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/products?page=0&size=20" }
+    },
+    {
+      "name": "Invalid pagination size 51",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/products?size=51" }
+    },
+    {
+      "name": "Public inventory",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/inventory/{{productId}}" }
+    },
+    {
+      "name": "Admin inventory",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "X-Admin-Key", "value": "{{adminKey}}" }],
+        "url": "{{baseUrl}}/api/admin/inventory/{{productId}}"
+      }
+    },
+    {
+      "name": "Deactivate product",
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "X-Admin-Key", "value": "{{adminKey}}" }],
+        "url": "{{baseUrl}}/api/admin/products/{{productId}}/deactivate"
+      }
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/redis_engineering_lab?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        generate_statistics: true
+
+logging:
+  level:
+    com.redislab: DEBUG
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+app:
+  dev-endpoints:
+    enabled: true
+  dev:
+    seed-catalog: false

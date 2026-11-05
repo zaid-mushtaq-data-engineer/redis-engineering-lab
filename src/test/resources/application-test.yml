@@ -1,0 +1,36 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+app:
+  environment: test
+  admin:
+    api-key: test-admin-key-for-integration-tests
+  redis:
+    project: redis-lab
+    ttl:
+      product: PT15M
+      inventory: PT30S
+      product-list: PT15M
+  rate-limit:
+    enabled: false
+    capacity: 10
+    refill-tokens-per-second: 1
+    key-ttl-after-full: PT60S
+    trust-forwarded-headers: false
+  pagination:
+    default-size: 20
+    max-size: 50
+  inventory:
+    max-stock-quantity: 1000000000
+  dev-endpoints:
+    enabled: false
+  dev:
+    seed-catalog: false
