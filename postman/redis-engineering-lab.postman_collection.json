@@ -33,7 +33,15 @@
       "request": { "method": "GET", "url": "{{baseUrl}}/api/products/{{productId}}" }
     },
     {
+      "name": "Public product detail (cache hit)",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/products/{{productId}}" }
+    },
+    {
       "name": "Public product list",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/products?page=0&size=20" }
+    },
+    {
+      "name": "Public product list (cache hit)",
       "request": { "method": "GET", "url": "{{baseUrl}}/api/products?page=0&size=20" }
     },
     {
