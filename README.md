@@ -106,7 +106,7 @@ Expect **3** Flyway migration rows after a successful upgrade from Stage 1/2.
 
 ## Stage 4 — Basic APIs (MySQL only)
 
-All **13** business endpoints from `files/API.md` are available. Services use **interfaces** (`ProductService`, `InventoryService`) with `*Impl` classes; writes go through `TransactionTemplate`. **No Redis** in product/inventory services yet (Stage 5+).
+All **13** business endpoints from `files/API.md` are available. Services use **interfaces** (`ProductService`, `InventoryService`) with `*Impl` classes; writes go through `TransactionTemplate`. Public product detail and paginated list use Redis cache-aside (Stages 5–6); inventory stays on MySQL until Stage 7.
 
 | Area | Notes |
 |------|--------|
@@ -127,6 +127,32 @@ Run tests:
 ```bash
 mvn test
 ```
+
+## Stage 5 — Product detail cache-aside
+
+`GET /api/products/{id}` uses cache-aside. Values are plain JSON at `redis-lab:dev:product:{id}` with TTL **15 minutes** (`app.redis.ttl.product`). Misses load from MySQL and `SET` the key. Missing or inactive products are **not** cached. Admin updates and status changes delete that key **after** the MySQL commit, and only when the row actually changed. Redis errors are logged and the request still uses MySQL (fail-open). A value that is not valid JSON is deleted and treated as a miss.
+
+Watch the app log for `CACHE_MISS` then `CACHE_HIT` on two GETs of the same id. Inspect Redis:
+
+```bash
+docker exec redislab-redis redis-cli GET redis-lab:dev:product:1
+docker exec redislab-redis redis-cli TTL redis-lab:dev:product:1
+```
+
+`TTL` should be at most about **900** seconds. Stop Redis and repeat the public GET: the response stays `200` from MySQL. Inventory caching is still MySQL-only (Stage 7).
+
+## Stage 6 — Product-list caching and invalidation
+
+`GET /api/products?page=&size=` uses cache-aside. Each page is stored at `redis-lab:dev:products:page:{page}:size:{size}` with TTL **15 minutes** (`app.redis.ttl.product-list`). Creating a product or any **changed** update/activate/deactivate clears **all** list keys after MySQL commit using `SCAN` + `UNLINK` (never `KEYS`). Admin product list never touches Redis.
+
+Out-of-range empty pages (`page > 0`, `content: []`) are **not** cached ([R-15]) so random page numbers cannot fill Redis.
+
+```bash
+curl -s "http://localhost:8080/api/products?page=0&size=20"
+docker exec redislab-redis redis-cli SCAN 0 MATCH redis-lab:dev:products:page:* COUNT 100
+```
+
+After a create or catalog change, repeat `SCAN` — list keys should be gone until the next public list GET refills them. Stop Redis: public list still returns `200` from MySQL.
 
 ## Stage 1 verification
 

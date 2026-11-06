@@ -3,19 +3,26 @@ package com.redislab.product.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.redislab.cache.service.ProductCacheService;
+import com.redislab.cache.service.ProductListCacheService;
 import com.redislab.common.exception.ConcurrentModificationException;
 import com.redislab.common.exception.ProductNotFoundException;
+import com.redislab.common.response.PageResponse;
 import com.redislab.common.util.PageRequestValidator;
 import com.redislab.inventory.repository.InventoryRepository;
+import com.redislab.product.dto.CreateProductRequest;
+import com.redislab.product.dto.ProductResponse;
 import com.redislab.product.dto.UpdateProductRequest;
 import com.redislab.product.entity.Product;
 import com.redislab.product.entity.ProductStatus;
 import com.redislab.product.repository.ProductRepository;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +48,12 @@ class ProductServiceImplTest {
     @Mock
     private PageRequestValidator pageRequestValidator;
 
+    @Mock
+    private ProductCacheService productCache;
+
+    @Mock
+    private ProductListCacheService productListCache;
+
     private ProductServiceImpl productService;
 
     @BeforeEach
@@ -49,14 +62,31 @@ class ProductServiceImplTest {
         when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         productService = new ProductServiceImpl(
-                productRepository, inventoryRepository, pageRequestValidator, transactionTemplate);
+                productRepository,
+                inventoryRepository,
+                pageRequestValidator,
+                transactionTemplate,
+                productCache,
+                productListCache);
     }
 
     @Test
     void getPublicProductThrowsWhenInactive() {
+        when(productCache.get(1L)).thenReturn(Optional.empty());
         when(productRepository.findByIdAndStatus(1L, ProductStatus.ACTIVE)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> productService.getPublicProduct(1L)).isInstanceOf(ProductNotFoundException.class);
+        verify(productCache, never()).put(any());
+    }
+
+    @Test
+    void getPublicProductReturnsCacheHitWithoutDatabase() {
+        ProductResponse cached =
+                new ProductResponse(1L, "Mouse", "desc", new BigDecimal("10.00"), ProductStatus.ACTIVE);
+        when(productCache.get(1L)).thenReturn(Optional.of(cached));
+
+        assertThat(productService.getPublicProduct(1L)).isEqualTo(cached);
+        verify(productRepository, never()).findByIdAndStatus(anyLong(), any());
     }
 
     @Test
@@ -87,6 +117,48 @@ class ProductServiceImplTest {
 
         assertThat(response.version()).isEqualTo(1L);
         verify(productRepository, never()).save(any());
+        verify(productCache, never()).evict(anyLong());
+        verify(productListCache, never()).evictAll();
+    }
+
+    @Test
+    void listPublicProductsReturnsCacheHitWithoutDatabase() {
+        PageResponse<ProductResponse> cached = new PageResponse<>(List.of(), 0, 20, 0, 0, true);
+        when(productListCache.get(0, 20)).thenReturn(Optional.of(cached));
+
+        assertThat(productService.listPublicProducts(0, 20)).isEqualTo(cached);
+        verify(productRepository, never()).findByStatus(any(), any());
+    }
+
+    @Test
+    void createProductEvictsAllListPagesAfterCommit() {
+        when(productRepository.save(any())).thenAnswer(inv -> {
+            Product p = inv.getArgument(0);
+            org.springframework.test.util.ReflectionTestUtils.setField(p, "id", 42L);
+            return p;
+        });
+        when(inventoryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        productService.createProduct(new CreateProductRequest("New Item", "d", new BigDecimal("9.99")));
+
+        verify(productListCache).evictAll();
+    }
+
+    @Test
+    void updateProductEvictsCacheWhenValuesChange() {
+        Product product = new Product("Mouse", "desc", new BigDecimal("10.00"));
+        org.springframework.test.util.ReflectionTestUtils.setField(product, "id", 1L);
+        org.springframework.test.util.ReflectionTestUtils.setField(product, "version", 1L);
+        when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+        when(productRepository.save(product)).thenReturn(product);
+
+        UpdateProductRequest request =
+                new UpdateProductRequest("New Mouse", "desc", new BigDecimal("10.00"), 1L);
+
+        productService.updateProduct(1L, request);
+
+        verify(productCache).evict(1L);
+        verify(productListCache).evictAll();
     }
 
     @Test
@@ -100,5 +172,7 @@ class ProductServiceImplTest {
 
         assertThat(response.status()).isEqualTo(ProductStatus.ACTIVE);
         verify(productRepository, never()).save(any());
+        verify(productCache, never()).evict(anyLong());
+        verify(productListCache, never()).evictAll();
     }
 }

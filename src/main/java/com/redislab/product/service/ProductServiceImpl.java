@@ -1,5 +1,7 @@
 package com.redislab.product.service;
 
+import com.redislab.cache.service.ProductCacheService;
+import com.redislab.cache.service.ProductListCacheService;
 import com.redislab.common.exception.ConcurrentModificationException;
 import com.redislab.common.exception.ProductNotFoundException;
 import com.redislab.common.response.PageResponse;
@@ -31,34 +33,55 @@ public class ProductServiceImpl implements ProductService {
     private final InventoryRepository inventoryRepository;
     private final PageRequestValidator pageRequestValidator;
     private final TransactionTemplate transactionTemplate;
+    private final ProductCacheService productCache;
+    private final ProductListCacheService productListCache;
 
     public ProductServiceImpl(
             ProductRepository productRepository,
             InventoryRepository inventoryRepository,
             PageRequestValidator pageRequestValidator,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate,
+            ProductCacheService productCache,
+            ProductListCacheService productListCache) {
         this.productRepository = productRepository;
         this.inventoryRepository = inventoryRepository;
         this.pageRequestValidator = pageRequestValidator;
         this.transactionTemplate = transactionTemplate;
+        this.productCache = productCache;
+        this.productListCache = productListCache;
     }
 
     @Override
     @Transactional(readOnly = true)
     public ProductResponse getPublicProduct(long id) {
-        return productRepository
+        return productCache.get(id).orElseGet(() -> loadAndCache(id));
+    }
+
+    private ProductResponse loadAndCache(long id) {
+        Product product = productRepository
                 .findByIdAndStatus(id, ProductStatus.ACTIVE)
-                .map(ProductResponse::from)
                 .orElseThrow(() -> new ProductNotFoundException(id));
+        ProductResponse response = ProductResponse.from(product);
+        productCache.put(response);
+        return response;
     }
 
     @Override
     @Transactional(readOnly = true)
     public PageResponse<ProductResponse> listPublicProducts(int page, int size) {
         pageRequestValidator.validate(page, size);
+        return productListCache
+                .get(page, size)
+                .orElseGet(() -> loadAndCacheList(page, size));
+    }
+
+    private PageResponse<ProductResponse> loadAndCacheList(int page, int size) {
         Page<Product> result = productRepository.findByStatus(
                 ProductStatus.ACTIVE, PageRequest.of(page, size, LIST_SORT));
-        return PageResponse.from(result.map(ProductResponse::from), page, size);
+        PageResponse<ProductResponse> response =
+                PageResponse.from(result.map(ProductResponse::from), page, size);
+        productListCache.put(page, size, response);
+        return response;
     }
 
     @Override
@@ -80,19 +103,20 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public AdminProductResponse createProduct(CreateProductRequest request) {
-        return transactionTemplate.execute(status -> {
+        AdminProductResponse created = transactionTemplate.execute(status -> {
             String name = request.name().trim();
             Product product =
                     productRepository.save(new Product(name, request.description(), request.price()));
             inventoryRepository.save(new Inventory(product.getId(), 0));
-            // Stage 5+: productListCache.evictAll()
             return AdminProductResponse.from(product);
         });
+        productListCache.evictAll();
+        return created;
     }
 
     @Override
     public AdminProductResponse updateProduct(long id, UpdateProductRequest request) {
-        return transactionTemplate.execute(status -> {
+        WriteOutcome<AdminProductResponse> outcome = transactionTemplate.execute(status -> {
             Product product = productRepository
                     .findById(id)
                     .orElseThrow(() -> new ProductNotFoundException(id));
@@ -102,37 +126,65 @@ public class ProductServiceImpl implements ProductService {
             String name = request.name().trim();
             String description = request.description();
             if (product.hasSameEditableValues(name, description, request.price())) {
-                return AdminProductResponse.from(product);
+                return WriteOutcome.unchanged(AdminProductResponse.from(product));
             }
             product.rename(name, description, request.price());
             try {
                 Product saved = productRepository.save(product);
-                // Stage 5+: productCache.evict(id); productListCache.evictAll()
-                return AdminProductResponse.from(saved);
+                return WriteOutcome.changed(AdminProductResponse.from(saved));
             } catch (ObjectOptimisticLockingFailureException ex) {
                 throw new ConcurrentModificationException();
             }
         });
+        if (outcome.changed()) {
+            invalidateCatalogCaches(id);
+        }
+        return outcome.response();
     }
 
     @Override
     public ProductStatusResponse activateProduct(long id) {
-        return transactionTemplate.execute(status -> changeStatus(id, ProductStatus.ACTIVE));
+        return changeStatusAfterCommit(id, ProductStatus.ACTIVE);
     }
 
     @Override
     public ProductStatusResponse deactivateProduct(long id) {
-        return transactionTemplate.execute(status -> changeStatus(id, ProductStatus.INACTIVE));
+        return changeStatusAfterCommit(id, ProductStatus.INACTIVE);
     }
 
-    private ProductStatusResponse changeStatus(long id, ProductStatus target) {
+    private ProductStatusResponse changeStatusAfterCommit(long id, ProductStatus target) {
+        WriteOutcome<ProductStatusResponse> outcome =
+                transactionTemplate.execute(status -> changeStatus(id, target));
+        if (outcome.changed()) {
+            invalidateCatalogCaches(id);
+            // Stage 7: inventoryCache.evict(id)
+        }
+        return outcome.response();
+    }
+
+    private void invalidateCatalogCaches(long productId) {
+        productCache.evict(productId);
+        productListCache.evictAll();
+    }
+
+    private WriteOutcome<ProductStatusResponse> changeStatus(long id, ProductStatus target) {
         Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));
         if (product.getStatus() == target) {
-            return ProductStatusResponse.from(product);
+            return WriteOutcome.unchanged(ProductStatusResponse.from(product));
         }
         product.changeStatus(target);
         Product saved = productRepository.save(product);
-        // Stage 5–7: evict product, inventory, list caches when status changes
-        return ProductStatusResponse.from(saved);
+        return WriteOutcome.changed(ProductStatusResponse.from(saved));
+    }
+
+    private record WriteOutcome<T>(T response, boolean changed) {
+
+        static <T> WriteOutcome<T> changed(T response) {
+            return new WriteOutcome<>(response, true);
+        }
+
+        static <T> WriteOutcome<T> unchanged(T response) {
+            return new WriteOutcome<>(response, false);
+        }
     }
 }
