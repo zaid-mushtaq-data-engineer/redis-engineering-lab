@@ -1,5 +1,6 @@
 package com.redislab.product.service;
 
+import com.redislab.cache.service.InventoryCacheService;
 import com.redislab.cache.service.ProductCacheService;
 import com.redislab.cache.service.ProductListCacheService;
 import com.redislab.common.exception.ConcurrentModificationException;
@@ -35,6 +36,7 @@ public class ProductServiceImpl implements ProductService {
     private final TransactionTemplate transactionTemplate;
     private final ProductCacheService productCache;
     private final ProductListCacheService productListCache;
+    private final InventoryCacheService inventoryCache;
 
     public ProductServiceImpl(
             ProductRepository productRepository,
@@ -42,13 +44,15 @@ public class ProductServiceImpl implements ProductService {
             PageRequestValidator pageRequestValidator,
             TransactionTemplate transactionTemplate,
             ProductCacheService productCache,
-            ProductListCacheService productListCache) {
+            ProductListCacheService productListCache,
+            InventoryCacheService inventoryCache) {
         this.productRepository = productRepository;
         this.inventoryRepository = inventoryRepository;
         this.pageRequestValidator = pageRequestValidator;
         this.transactionTemplate = transactionTemplate;
         this.productCache = productCache;
         this.productListCache = productListCache;
+        this.inventoryCache = inventoryCache;
     }
 
     @Override
@@ -157,7 +161,7 @@ public class ProductServiceImpl implements ProductService {
                 transactionTemplate.execute(status -> changeStatus(id, target));
         if (outcome.changed()) {
             invalidateCatalogCaches(id);
-            // Stage 7: inventoryCache.evict(id)
+            inventoryCache.evict(id);
         }
         return outcome.response();
     }

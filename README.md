@@ -106,7 +106,7 @@ Expect **3** Flyway migration rows after a successful upgrade from Stage 1/2.
 
 ## Stage 4 — Basic APIs (MySQL only)
 
-All **13** business endpoints from `files/API.md` are available. Services use **interfaces** (`ProductService`, `InventoryService`) with `*Impl` classes; writes go through `TransactionTemplate`. Public product detail and paginated list use Redis cache-aside (Stages 5–6); inventory stays on MySQL until Stage 7.
+All **13** business endpoints from `files/API.md` are available. Services use **interfaces** (`ProductService`, `InventoryService`) with `*Impl` classes; writes go through `TransactionTemplate`. Public product detail, paginated lists, and public inventory use Redis cache-aside (Stages 5–7).
 
 | Area | Notes |
 |------|--------|
@@ -139,7 +139,7 @@ docker exec redislab-redis redis-cli GET redis-lab:dev:product:1
 docker exec redislab-redis redis-cli TTL redis-lab:dev:product:1
 ```
 
-`TTL` should be at most about **900** seconds. Stop Redis and repeat the public GET: the response stays `200` from MySQL. Inventory caching is still MySQL-only (Stage 7).
+`TTL` should be at most about **900** seconds. Stop Redis and repeat the public GET: the response stays `200` from MySQL.
 
 ## Stage 6 — Product-list caching and invalidation
 
@@ -153,6 +153,20 @@ docker exec redislab-redis redis-cli SCAN 0 MATCH redis-lab:dev:products:page:* 
 ```
 
 After a create or catalog change, repeat `SCAN` — list keys should be gone until the next public list GET refills them. Stop Redis: public list still returns `200` from MySQL.
+
+## Stage 7 — Inventory caching and invalidation
+
+`GET /api/inventory/{productId}` uses cache-aside. Values are plain JSON at `redis-lab:dev:inventory:{productId}` with TTL **30 seconds** (`app.redis.ttl.inventory`). Only active products are cached. Missing or inactive products return `404` and are not stored. Admin inventory reads never touch Redis.
+
+A changed set, increment, or decrement deletes the key **after** the MySQL commit. Activating or deactivating a product does the same. An unchanged quantity leaves the key in place. If a delete is missed, the value can be stale for at most 30 seconds.
+
+```bash
+curl -s http://localhost:8080/api/inventory/1
+docker exec redislab-redis redis-cli GET redis-lab:dev:inventory:1
+docker exec redislab-redis redis-cli TTL redis-lab:dev:inventory:1
+```
+
+Two GETs log `CACHE_MISS` then `CACHE_HIT`. `TTL` is at most **30**. Stop Redis and the public GET still returns `200` from MySQL.
 
 ## Stage 1 verification
 

@@ -53,6 +53,10 @@
       "request": { "method": "GET", "url": "{{baseUrl}}/api/inventory/{{productId}}" }
     },
     {
+      "name": "Public inventory (cache hit)",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/inventory/{{productId}}" }
+    },
+    {
       "name": "Admin inventory",
       "request": {
         "method": "GET",
