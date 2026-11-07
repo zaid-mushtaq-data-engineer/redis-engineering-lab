@@ -4,6 +4,8 @@ A Spring Boot backend used to **learn Redis by solving realistic backend problem
 
 Design documentation lives under [`files/`](files/) — start with [`files/PROJECT.md`](files/PROJECT.md) and the stage plan in [`files/ROADMAP.md`](files/ROADMAP.md).
 
+**Phase 1 learner docs** (as-built narrative): [`docs/architecture.md`](docs/architecture.md), [`docs/redis-fundamentals.md`](docs/redis-fundamentals.md), [`docs/experiments.md`](docs/experiments.md).
+
 ## Prerequisites
 
 - Java 21
@@ -168,6 +170,57 @@ docker exec redislab-redis redis-cli TTL redis-lab:dev:inventory:1
 
 Two GETs log `CACHE_MISS` then `CACHE_HIT`. `TTL` is at most **30**. Stop Redis and the public GET still returns `200` from MySQL.
 
+## Stage 8 — Per-IP token bucket rate limiting
+
+Public **GET** endpoints share one token bucket per client IP: `GET /api/products/{id}`, `GET /api/products`, and `GET /api/inventory/{productId}`. Defaults: capacity **10**, refill **1 token/s**, bucket state in Redis Hash `redis-lab:dev:rate-limit:{ip}` via Lua (`redis/token_bucket.lua`). Admin, actuator, and Swagger are not limited.
+
+Successful responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` when Redis is up (including `404`). The 11th rapid request returns **429** with `Retry-After`, the same headers, and JSON `RATE_LIMIT_EXCEEDED`. If Redis is unavailable, requests proceed with **no** rate-limit headers (`RATE_LIMIT_REDIS_FAILURE` in logs). Unit tests disable limiting via `app.rate-limit.enabled: false` in the test profile.
+
+```bash
+for i in $(seq 1 11); do curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/api/products/1; done
+docker exec redislab-redis redis-cli HGETALL redis-lab:dev:rate-limit:127.0.0.1
+```
+
+Expect `200` for requests 1–10 (`Remaining` counts down), then `429`; after ~1s refill, one more `200`. With `trust-forwarded-headers: false`, spoofed `X-Forwarded-For` does not change the bucket key.
+
+## Stage 9 — Testing and failure verification
+
+Automated integration tests use the Spring profile **`it`**: real MySQL and Redis **7.2** (128 MB, `noeviction`) via Testcontainers. Keys use the `test` prefix (`redis-lab:test:*`). Fast unit tests keep profile **`test`** with a mock Redis.
+
+```bash
+mvn verify   # Docker required
+```
+
+Coverage includes cache-aside, invalidation, optimistic locking, inventory concurrency, token-bucket limits (HTTP + Lua), stampede reproduction (`StampedeReproductionIT` — documents Phase 2 need), Redis-unreachable fail-open, admin/error format, and actuator health. Manual compose drills (stop Redis, restart, OOM) are recorded in [`docs/experiments.md`](docs/experiments.md) with the §21.2 checklist.
+
+## Stage 10 — Phase 1 review and documentation
+
+Phase 1 is **complete** as a documented baseline for Phase 2. Read [`docs/architecture.md`](docs/architecture.md) for keys, flows, and failure modes; [`docs/redis-fundamentals.md`](docs/redis-fundamentals.md) for CLI and structure choices; [`docs/experiments.md`](docs/experiments.md) for drill results, latency samples, and the §21.2 map.
+
+### Onboarding (fresh clone)
+
+1. Java 21, Maven 3.9+, Docker Compose v2  
+2. `cp .env.example .env` — set secrets locally (never commit `.env`)  
+3. `docker compose -f ops/compose.dev.yml --env-file .env up -d`  
+4. `export SPRING_PROFILES_ACTIVE=dev` and source `.env`; `mvn spring-boot:run`  
+5. Import `postman/redis-engineering-lab.postman_collection.json`  
+6. `mvn verify` (Docker) for the full test suite  
+
+### Phase 1 exit checklist
+
+| Criterion | Evidence |
+|-----------|----------|
+| 13 endpoints per [`files/API.md`](files/API.md) | Controllers + Postman collection |
+| 3 cache families + invalidation matrix | `CacheInvalidationIT`, [`docs/architecture.md`](docs/architecture.md) |
+| Token bucket under concurrency | `RateLimitIntegrationIT`, `RateLimitLuaIT` |
+| Redis stop/restart drills | [`docs/experiments.md`](docs/experiments.md) |
+| Stampede reproduced | `StampedeReproductionIT` (entity loads > 1) |
+| No `KEYS` in application code | `SCAN` list eviction; audit in experiments |
+| Secrets not in Git | `.gitignore` + `.env.example` |
+| Docs match code | `docs/*` + this README |
+
+**Next:** Phase 2 Stage 2.1 — distributed lock on cache miss; re-run `StampedeReproductionIT` targeting ~1 MySQL load.
+
 ## Stage 1 verification
 
 Redis limits:
@@ -207,4 +260,5 @@ Optional: `docker restart redislab-redis` — Redis data is cleared (no persiste
 | `src/main/java/com/redislab/` | Application code |
 | `src/main/resources/db/migration/` | Flyway scripts (empty until Stage 3) |
 | `ops/compose.dev.yml` | Local MySQL and Redis |
-| `files/` | Architecture and roadmap docs |
+| `docs/` | Phase 1 learner docs (architecture, Redis primer, experiments) |
+| `files/` | Design archive and roadmap |

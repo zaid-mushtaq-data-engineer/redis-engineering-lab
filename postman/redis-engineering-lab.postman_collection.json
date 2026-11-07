@@ -29,6 +29,14 @@
       }
     },
     {
+      "name": "Rate limit burst (run 11x in Collection Runner)",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/products/{{productId}}",
+        "description": "Stage 8: shared per-IP bucket across public GETs. Expect X-RateLimit-* on 200/404; 11th rapid call → 429 + Retry-After."
+      }
+    },
+    {
       "name": "Public product detail",
       "request": { "method": "GET", "url": "{{baseUrl}}/api/products/{{productId}}" }
     },
@@ -62,6 +70,84 @@
         "method": "GET",
         "header": [{ "key": "X-Admin-Key", "value": "{{adminKey}}" }],
         "url": "{{baseUrl}}/api/admin/inventory/{{productId}}"
+      }
+    },
+    {
+      "name": "Admin product list",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "X-Admin-Key", "value": "{{adminKey}}" }],
+        "url": "{{baseUrl}}/api/admin/products?page=0&size=20"
+      }
+    },
+    {
+      "name": "Admin product detail",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "X-Admin-Key", "value": "{{adminKey}}" }],
+        "url": "{{baseUrl}}/api/admin/products/{{productId}}"
+      }
+    },
+    {
+      "name": "Update product",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "X-Admin-Key", "value": "{{adminKey}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"name\":\"Wireless Mouse\",\"description\":\"Updated\",\"price\":849.00,\"version\":0}"
+        },
+        "url": "{{baseUrl}}/api/admin/products/{{productId}}"
+      }
+    },
+    {
+      "name": "Activate product",
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "X-Admin-Key", "value": "{{adminKey}}" }],
+        "url": "{{baseUrl}}/api/admin/products/{{productId}}/activate"
+      }
+    },
+    {
+      "name": "Set inventory",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "X-Admin-Key", "value": "{{adminKey}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"stockQuantity\":100,\"version\":0}"
+        },
+        "url": "{{baseUrl}}/api/admin/inventory/{{productId}}"
+      }
+    },
+    {
+      "name": "Increment inventory",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-Admin-Key", "value": "{{adminKey}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"quantity\":1}" },
+        "url": "{{baseUrl}}/api/admin/inventory/{{productId}}/increment"
+      }
+    },
+    {
+      "name": "Decrement inventory",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-Admin-Key", "value": "{{adminKey}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"quantity\":1}" },
+        "url": "{{baseUrl}}/api/admin/inventory/{{productId}}/decrement"
       }
     },
     {

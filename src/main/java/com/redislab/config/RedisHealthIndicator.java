@@ -8,7 +8,7 @@ import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.stereotype.Component;
 
 @Component("redis")
-@Profile("!test")
+@Profile({"dev", "it"})
 public class RedisHealthIndicator implements HealthIndicator {
 
     private final RedisConnectionFactory connectionFactory;

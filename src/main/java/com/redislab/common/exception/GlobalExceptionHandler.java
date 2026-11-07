@@ -1,6 +1,8 @@
 package com.redislab.common.exception;
 
 import com.redislab.common.response.ErrorResponse;
+import com.redislab.ratelimit.RateLimitHeaders;
+import com.redislab.ratelimit.RateLimitResult;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -27,8 +29,22 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AppException.class)
     public ResponseEntity<ErrorResponse> handleAppException(AppException ex, HttpServletRequest request) {
+        if (ex instanceof RateLimitExceededException rateLimit) {
+            return handleRateLimitExceeded(rateLimit, request);
+        }
         return ResponseEntity.status(ex.getStatus())
                 .body(ErrorResponse.of(ex.getStatus(), ex.getCode(), ex.getMessage(), request.getRequestURI()));
+    }
+
+    private ResponseEntity<ErrorResponse> handleRateLimitExceeded(
+            RateLimitExceededException ex, HttpServletRequest request) {
+        RateLimitResult result = ex.getResult();
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(RateLimitHeaders.RETRY_AFTER, String.valueOf(result.retryAfterSeconds()))
+                .header(RateLimitHeaders.LIMIT, String.valueOf(result.limit()))
+                .header(RateLimitHeaders.REMAINING, String.valueOf(result.remaining()))
+                .header(RateLimitHeaders.RESET, String.valueOf(result.resetEpochSeconds()))
+                .body(ErrorResponse.of(429, ex.getCode(), ex.getMessage(), request.getRequestURI()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
