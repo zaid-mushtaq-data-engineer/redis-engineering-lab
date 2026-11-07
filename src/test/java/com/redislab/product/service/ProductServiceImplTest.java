@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.redislab.cache.service.InventoryCacheService;
 import com.redislab.cache.service.ProductCacheService;
 import com.redislab.cache.service.ProductListCacheService;
 import com.redislab.common.exception.ConcurrentModificationException;
@@ -54,6 +55,9 @@ class ProductServiceImplTest {
     @Mock
     private ProductListCacheService productListCache;
 
+    @Mock
+    private InventoryCacheService inventoryCache;
+
     private ProductServiceImpl productService;
 
     @BeforeEach
@@ -67,7 +71,8 @@ class ProductServiceImplTest {
                 pageRequestValidator,
                 transactionTemplate,
                 productCache,
-                productListCache);
+                productListCache,
+                inventoryCache);
     }
 
     @Test
@@ -174,5 +179,19 @@ class ProductServiceImplTest {
         verify(productRepository, never()).save(any());
         verify(productCache, never()).evict(anyLong());
         verify(productListCache, never()).evictAll();
+        verify(inventoryCache, never()).evict(anyLong());
+    }
+
+    @Test
+    void deactivateProductEvictsInventoryWhenStatusChanges() {
+        Product product = new Product("Mouse", "desc", new BigDecimal("10.00"));
+        org.springframework.test.util.ReflectionTestUtils.setField(product, "id", 1L);
+        org.springframework.test.util.ReflectionTestUtils.setField(product, "version", 0L);
+        when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+        when(productRepository.save(product)).thenReturn(product);
+
+        productService.deactivateProduct(1L);
+
+        verify(inventoryCache).evict(1L);
     }
 }
